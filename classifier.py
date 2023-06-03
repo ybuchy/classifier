@@ -16,7 +16,7 @@ class Layer:
 
 
     def set_nodes(self, content):
-        self.nodes = np.array([1] + list(content)) if self.bias else content
+        self.nodes = np.array([1] + list(content.flatten())) if self.bias else content
 
 
     def __str__(self):
@@ -31,11 +31,12 @@ class Layer:
 
     def activate(self):
         self.nodes_pre = self.nodes.copy()
-        self.nodes = vec(self.activation, self.nodes)
+        self.nodes = np.array([1] + list(vec(self.activation, self.nodes.flatten()[1:]))) if self.bias else vec(self.activation, self.nodes.flatten())
 
 
     def get_nodes(self):
         return self.nodes[1:] if self.bias else self.nodes
+
 
     def get_nodes_pre(self):
         return self.nodes_pre[1:] if self.bias else self.nodes_pre
@@ -55,12 +56,18 @@ def relu(x, derivative=False):
 
 
 def cost(classification, wanted, derivative=False): # TODO read about cross entropy
-    dif = classification - wanted
+    dif = wanted - classification
     if derivative:
-        return 1/len(dif) * dif
-    return 1/(2 * len(dif)) * np.dot(dif, dif)
+        return -dif/len(dif)#1/len(dif) * dif
+    return 1/(2*len(dif)) * np.dot(dif, dif)#1/(2 * len(dif)) * np.dot(dif, dif)
 
 
+def softmax(x, derivative=False):
+    if derivative:
+        pass
+    # numerical stabilization
+    new_x = x - max(x)
+    return np.exp(new_x) / np.sum(np.exp(new_x))
 
 
 class Neural_net:
@@ -71,7 +78,7 @@ class Neural_net:
     try out types?
     change constructor parameters, confusing rn
     rename content to nodes as in layer
-    bias 0 all the time?
+    sigmoid derivative is sigmoid * (1 - sigmoid), so no need to calculate exp again - change
     """
     def __init__(self, learning_rate, num_hid, il_size, ol_size, *hl_sizes):
         """
@@ -84,8 +91,11 @@ class Neural_net:
         if len(hl_sizes) != num_hid:
             raise TypeError("please specify hidden layer sizes")
 
-        self.layers = [Layer(il_size, sigmoid)] + list(Layer(size, sigmoid) for size in hl_sizes) + [Layer(ol_size, sigmoid, bias = False)]
-        self.weights = [np.zeros((hl_sizes[0], il_size + 1))] + list(np.zeros((hl_sizes[i+1], hl_sizes[i] + 1)) for i in range(num_hid - 1)) + [np.zeros((ol_size, hl_sizes[-1] + 1))]
+        self.layers = [Layer(il_size, relu)] + list(Layer(size, relu) for size in hl_sizes) + [Layer(ol_size, softmax, bias = False)]
+        # make bias column/row 1 instead of 0
+        self.weights = [np.hstack((np.reshape(np.ones(hl_sizes[0]), (-1, 1)), np.zeros((hl_sizes[0], il_size))))] \
+            + list(np.hstack((np.reshape(np.ones(hl_sizes[i+1], np.zeros((hl_sizes[i+1], hl_sizes[i]))), (-1, 1)))) for i in range(num_hid - 1)) \
+            + [np.hstack((np.reshape(np.ones(ol_size), (-1, 1)), np.zeros((ol_size, hl_sizes[-1]))))]
 
         self.learning_rate = learning_rate
 
@@ -102,7 +112,6 @@ class Neural_net:
 
 
     def forward(self):
-        self.layers[0].activate()
         for layer in range(len(self.layers) - 1):
             self.layers[layer+1].set_nodes(self.weights[layer] @ self.layers[layer].nodes)
             self.layers[layer+1].activate()
@@ -114,16 +123,18 @@ class Neural_net:
         """
         derivatives = []
         # last layer
-        vec = vec_der(sigmoid, self.layers[-1].get_nodes_pre())
+        vec = vec_der(softmax, self.layers[-1].get_nodes_pre().flatten())
         cost_grad = cost(self.layers[-1].get_nodes(), output, derivative = True)
         derivatives.append(np.reshape(vec * cost_grad, (-1, 1)) @ np.reshape(self.layers[-2].get_nodes(), (1, -1)))
 
         # earlier layers
         for layer in range(len(self.layers) - 2, 0, -1):
             # calculate cost gradient wrt activated nodes
-            dc_dz = vec_der(sigmoid, self.layers[layer+1].get_nodes_pre()) * cost_grad
+            dc_dz = vec_der(relu, self.layers[layer+1].get_nodes_pre().flatten()) * cost_grad
             cost_grad = np.fromiter((np.dot(self.weights[layer][:, k], dc_dz) for k in range(1, len(self.layers[layer]))), float) # maybe 1 in range wrong
-            vec = vec_der(sigmoid, self.layers[layer].get_nodes())
+            #nodes = self.layers[layer].get_nodes()
+            #vec = nodes * (1 - nodes) # nodes_pre wrong? !!!!!!!!!!!!!!!!!!!!!!!!!!
+            vec = vec_der(relu, self.layers[layer].nodes_pre[1:])
             derivatives.append(np.reshape(vec * cost_grad, (-1, 1)) @ np.reshape(self.layers[layer-1].get_nodes(), (1, -1)))
 
         # update weights
@@ -157,9 +168,9 @@ def main():
     # input layer size: 28^2 (amount of pixels)
     # hidden layer size: try different ones to prevent overfitting (why?) first try: 500 (so about 64%) (try out Grid search(hyperparameter optimization) later
     # output layer size: 10 (classification to number)
-    learning_rate = .1
+    learning_rate = .01
     il_size = 28 ** 2
-    hl_size = 500
+    hl_size = 100
     ol_size = 10
     net = Neural_net(learning_rate, 1, il_size, ol_size, hl_size)
 
@@ -168,14 +179,17 @@ def main():
     retrain = True
 
     if retrain:
+        costs = []
         for (image, label, num) in zip(images, labels, range(len(labels))):
-            net.set_input_layer(image)
+            net.set_input_layer(np.array(image)/255) # normalize input to [0,1]
             net.forward()
             wanted = np.zeros(10)
             wanted[label] = 1
             net.backpropagate(wanted)
-            if num == 500:
+            costs.append(cost(net.layers[-1].get_nodes(), wanted))
+            if num == 5000:
                 break
+
         print("training done")
 
 
@@ -183,7 +197,10 @@ def main():
         weights_hid_out = np.load("who.npy")
         weights_in_hid = np.load("wih.npy")
 
+    plt.plot(costs)
+    plt.show()
 
+    print("loading test data")
     img_fileinfo = read_image_file(files[2])
     images = img_fileinfo["images"]
     label_fileinfo = read_label_file(files[3])
@@ -193,17 +210,18 @@ def main():
     print("testing model...")
     num_correct = 0
     for (image, label, num) in zip(images, labels, range(len(labels))):
-        net.set_input_layer(image)
+        net.set_input_layer(np.array(image)/255)
         net.forward()
         output = net.layers[-1].get_nodes()
-        print(output)
+        wanted = np.zeros(10)
+        wanted[label] = 1
         highest = list(output).index(max(output))
         if highest == label:
             num_correct += 1
-        if num == 500:
+        if num == 3000:
             break
 
-    print(num_correct / len(images))
+    print(num_correct / 3000)
 
 
 
