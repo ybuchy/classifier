@@ -1,5 +1,6 @@
 from preproc import *
 
+
 def vec(func, iterable):
     return np.fromiter(map(lambda x: func(x), iterable), float)
 
@@ -31,6 +32,10 @@ class Layer:
 
     def activate(self):
         self.nodes_pre = self.nodes.copy()
+        # ToDO !!!!!!!!!!!!!!!!! change !!!!!!!!!!!!!!!
+        if not self.bias:
+            self.nodes = softmax(self.nodes)
+            return
         self.nodes = np.array([1] + list(vec(self.activation, self.nodes.flatten()[1:]))) if self.bias else vec(self.activation, self.nodes.flatten())
 
 
@@ -64,10 +69,16 @@ def cost(classification, wanted, derivative=False): # TODO read about cross entr
 
 def softmax(x, derivative=False):
     if derivative:
-        pass
+        A = x * (-x @ np.ones((len(x), len(x))))
+        jacobian = A - np.diag(A) + np.diag(x * (1-x))
+        return jacobian @ x
     # numerical stabilization
     new_x = x - max(x)
     return np.exp(new_x) / np.sum(np.exp(new_x))
+
+
+def cat_cross_entropy(classification, wanted):
+    return -np.dot(wanted, np.log(classification))
 
 
 class Neural_net:
@@ -85,19 +96,20 @@ class Neural_net:
         num_hid: amount of hidden layers
         il_size: amount of input nodes
         ol_size: amount of output nodes
-        args: nodes per hidden layer
+        hl_sizes: nodes per hidden layer
         """
 
         if len(hl_sizes) != num_hid:
             raise TypeError("please specify hidden layer sizes")
 
-        self.layers = [Layer(il_size, relu)] + list(Layer(size, relu) for size in hl_sizes) + [Layer(ol_size, softmax, bias = False)]
-        # make bias column/row 1 instead of 0
-        self.weights = [np.hstack((np.reshape(np.ones(hl_sizes[0]), (-1, 1)), np.zeros((hl_sizes[0], il_size))))] \
-            + list(np.hstack((np.reshape(np.ones(hl_sizes[i+1], np.zeros((hl_sizes[i+1], hl_sizes[i]))), (-1, 1)))) for i in range(num_hid - 1)) \
-            + [np.hstack((np.reshape(np.ones(ol_size), (-1, 1)), np.zeros((ol_size, hl_sizes[-1]))))]
+        self.layers = [Layer(il_size, sigmoid)] + list(Layer(size, sigmoid) for size in hl_sizes) + [Layer(ol_size, softmax, bias = False)]
+        max_size = il_size # change
+        self.weights = [np.hstack((np.reshape(np.ones(hl_sizes[0]), (-1, 1)), 2 / np.sqrt(max_size) * (np.random.rand(hl_sizes[0], il_size) - 0.5)))] \
+            + list(np.hstack((np.reshape(np.ones(hl_sizes[i+1]), 2 / np.sqrt(max_size) * (np.random.rand(hl_sizes[i+1], hl_sizes[i]) - 0.5)), (-1, 1))) for i in range(num_hid - 1)) \
+            + [np.hstack((np.reshape(np.ones(ol_size), (-1, 1)), 2 / np.sqrt(max_size) * (np.random.rand(ol_size, hl_sizes[-1]) - 0.5)))]
 
         self.learning_rate = learning_rate
+        self.derivatives = []
 
 
     def set_input_layer(self, nodes):
@@ -111,6 +123,36 @@ class Neural_net:
         print(self.layers[-1])
 
 
+    def gradient_check(self, inp, outp):
+        cur_weights = self.weights.copy()
+        epsilon = 0.0001
+        # check 100 pseudo random gradients
+        for _ in range(100):
+            k = np.random.randint(0, len(self.weights))
+            i, j = np.random.randint(0, self.weights[k].shape[0]), np.random.randint(1, self.weights[k].shape[1])
+            self.set_input_layer(inp)
+            self.forward()
+            self.backpropagate(outp)
+            calculated = self.derivatives[k][i, j]
+            self.weights = cur_weights.copy()
+            self.weights[k][i, j] += epsilon
+            self.set_input_layer(inp)
+            self.forward()
+            plus = cost(self.layers[-1].get_nodes(), outp)
+            self.weights = cur_weights.copy()
+            self.weights[k][i, j] -= epsilon
+            self.set_input_layer(inp)
+            self.forward()
+            minus = cost(self.layers[-1].get_nodes(), outp)
+            numerical_approx = (plus - minus) / 2 * epsilon
+            if((d := abs(calculated - numerical_approx)) > 0.01):
+                print(f"{k}: [{i}, {j}] ~ {d}")
+                print(calculated/numerical_approx)
+        # check random errors
+
+
+
+
     def forward(self):
         for layer in range(len(self.layers) - 1):
             self.layers[layer+1].set_nodes(self.weights[layer] @ self.layers[layer].nodes)
@@ -121,25 +163,42 @@ class Neural_net:
         """
         output: what the output layer should have been
         """
-        derivatives = []
+        errors = []
+
         # last layer
-        vec = vec_der(softmax, self.layers[-1].get_nodes_pre().flatten())
-        cost_grad = cost(self.layers[-1].get_nodes(), output, derivative = True)
-        derivatives.append(np.reshape(vec * cost_grad, (-1, 1)) @ np.reshape(self.layers[-2].get_nodes(), (1, -1)))
+        cost_grad = self.layers[-1].get_nodes() - output # this is specifically for softmax with categorical cross entropy right now
+        sigma_deriv = softmax(self.layers[-1].get_nodes_pre(), derivative=True)
+        errors.append(cost_grad * sigma_deriv)
 
         # earlier layers
         for layer in range(len(self.layers) - 2, 0, -1):
-            # calculate cost gradient wrt activated nodes
-            dc_dz = vec_der(relu, self.layers[layer+1].get_nodes_pre().flatten()) * cost_grad
-            cost_grad = np.fromiter((np.dot(self.weights[layer][:, k], dc_dz) for k in range(1, len(self.layers[layer]))), float) # maybe 1 in range wrong
-            #nodes = self.layers[layer].get_nodes()
-            #vec = nodes * (1 - nodes) # nodes_pre wrong? !!!!!!!!!!!!!!!!!!!!!!!!!!
-            vec = vec_der(relu, self.layers[layer].nodes_pre[1:])
-            derivatives.append(np.reshape(vec * cost_grad, (-1, 1)) @ np.reshape(self.layers[layer-1].get_nodes(), (1, -1)))
+            sigma = self.layers[layer].get_nodes() # for testing
+            errors.append(self.weights[layer][:, 1:].T @ errors[-1] * (sigma * (1 - sigma)))
 
-        # update weights
-        for i in range(len(self.weights)):
-            self.weights[i] -= self.learning_rate * np.hstack((np.zeros((self.weights[i].shape[0], 1)), derivatives[len(derivatives) - (i + 1)]))
+        # calculate derivatives
+        for (layer, error, num) in zip(self.layers[:-1], reversed(errors), range(len(self.weights))):
+            if len(self.derivatives) < len(self.weights):
+                self.derivatives.append(np.hstack((np.reshape(error, (-1, 1)), np.outer(error, layer.get_nodes()))))
+            else:
+                self.derivatives[num] += np.hstack((np.reshape(error, (-1, 1)), np.outer(error, layer.get_nodes())))
+
+
+    def update_weights_and_biases(self):
+        for (weight, derivative) in zip(self.weights, self.derivatives):
+            weight -= self.learning_rate * derivative
+        self.derivatives = []
+
+
+    def mini_batch_gd(inputs, outputs):
+        if len(inputs) != len(outputs):
+            raise TypeError("#input not equal to #outputs")
+
+        for (inp, outp) in zip(inputs, outputs):
+            self.forward(inp)
+            self.backpropagate(outp)
+
+        self.update_weights_and_biases()
+
 
 
     def save_weights(self):
@@ -168,9 +227,10 @@ def main():
     # input layer size: 28^2 (amount of pixels)
     # hidden layer size: try different ones to prevent overfitting (why?) first try: 500 (so about 64%) (try out Grid search(hyperparameter optimization) later
     # output layer size: 10 (classification to number)
-    learning_rate = .01
+
+    learning_rate = .0001
     il_size = 28 ** 2
-    hl_size = 100
+    hl_size = 500
     ol_size = 10
     net = Neural_net(learning_rate, 1, il_size, ol_size, hl_size)
 
@@ -180,15 +240,23 @@ def main():
 
     if retrain:
         costs = []
+        images = images[:5000]
+        labels = labels[:5000]
+        c = 0
         for (image, label, num) in zip(images, labels, range(len(labels))):
+            if num  == 2:
+                wanted2 = np.zeros(10)
+                wanted2[label] = 1
+                net.gradient_check(np.array(image)/255, wanted2)
+                exit()
             net.set_input_layer(np.array(image)/255) # normalize input to [0,1]
             net.forward()
             wanted = np.zeros(10)
             wanted[label] = 1
             net.backpropagate(wanted)
-            costs.append(cost(net.layers[-1].get_nodes(), wanted))
-            if num == 5000:
-                break
+            c += cat_cross_entropy(net.layers[-1].get_nodes(), wanted)
+            net.update_weights_and_biases()
+
 
         print("training done")
 
