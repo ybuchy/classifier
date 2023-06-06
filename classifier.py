@@ -69,9 +69,8 @@ def cost(classification, wanted, derivative=False): # TODO read about cross entr
 
 def softmax(x, derivative=False):
     if derivative:
-        A = x * (-x @ np.ones((len(x), len(x))))
-        jacobian = A - np.diag(A) + np.diag(x * (1-x))
-        return jacobian @ x
+        jacobian = np.outer(x, -x) + np.diag(x)
+        return jacobian
     # numerical stabilization
     new_x = x - max(x)
     return np.exp(new_x) / np.sum(np.exp(new_x))
@@ -84,11 +83,10 @@ def cat_cross_entropy(classification, wanted):
 class Neural_net:
     """
     TODO:
-    change activation functions of layers (default sigmoid?)
+    change activation functions of layers (default relu?)
     currently wants at least one hidden layer, change?
     try out types?
     change constructor parameters, confusing rn
-    rename content to nodes as in layer
     sigmoid derivative is sigmoid * (1 - sigmoid), so no need to calculate exp again - change
     """
     def __init__(self, learning_rate, num_hid, il_size, ol_size, *hl_sizes):
@@ -102,14 +100,17 @@ class Neural_net:
         if len(hl_sizes) != num_hid:
             raise TypeError("please specify hidden layer sizes")
 
-        self.layers = [Layer(il_size, sigmoid)] + list(Layer(size, sigmoid) for size in hl_sizes) + [Layer(ol_size, softmax, bias = False)]
+        self.layers = [Layer(il_size, relu)] + list(Layer(size, relu) for size in hl_sizes) + [Layer(ol_size, softmax, bias = False)]
+
+
         max_size = il_size # change
+
         self.weights = [np.hstack((np.reshape(np.ones(hl_sizes[0]), (-1, 1)), 2 / np.sqrt(max_size) * (np.random.rand(hl_sizes[0], il_size) - 0.5)))] \
             + list(np.hstack((np.reshape(np.ones(hl_sizes[i+1]), 2 / np.sqrt(max_size) * (np.random.rand(hl_sizes[i+1], hl_sizes[i]) - 0.5)), (-1, 1))) for i in range(num_hid - 1)) \
             + [np.hstack((np.reshape(np.ones(ol_size), (-1, 1)), 2 / np.sqrt(max_size) * (np.random.rand(ol_size, hl_sizes[-1]) - 0.5)))]
 
         self.learning_rate = learning_rate
-        self.derivatives = []
+        self.derivatives = [np.zeros(weight.shape) for weight in self.weights]
 
 
     def set_input_layer(self, nodes):
@@ -134,21 +135,32 @@ class Neural_net:
             self.forward()
             self.backpropagate(outp)
             calculated = self.derivatives[k][i, j]
-            self.weights = cur_weights.copy()
             self.weights[k][i, j] += epsilon
             self.set_input_layer(inp)
             self.forward()
             plus = cost(self.layers[-1].get_nodes(), outp)
-            self.weights = cur_weights.copy()
             self.weights[k][i, j] -= epsilon
             self.set_input_layer(inp)
             self.forward()
             minus = cost(self.layers[-1].get_nodes(), outp)
             numerical_approx = (plus - minus) / 2 * epsilon
             if((d := abs(calculated - numerical_approx)) > 0.01):
-                print(f"{k}: [{i}, {j}] ~ {d}")
-                print(calculated/numerical_approx)
-        # check random errors
+                print(d / max(abs(calculated), abs(numerical_approx)), calculated, numerical_approx)
+
+        return
+        # check random errors TODO !!!!!!!!!!!!!!!!!!!!!!!!
+        self.set_input_layer(inp)
+        self.forward()
+        cur_errors = self.errors.copy()
+        print(len(cur_errors))
+        exit()
+        for _ in range(10):
+            k = np.random.randint(0, len(cur_errors))
+            j = np.random.randint(0, len(cur_errors[k]))
+            calculated = cur_errors[k][j]
+            self.layer[k][j] -= epsilon
+            # forward
+
 
 
 
@@ -163,30 +175,33 @@ class Neural_net:
         """
         output: what the output layer should have been
         """
-        errors = []
+        self.errors = []
 
-        # last layer
-        cost_grad = self.layers[-1].get_nodes() - output # this is specifically for softmax with categorical cross entropy right now
-        sigma_deriv = softmax(self.layers[-1].get_nodes_pre(), derivative=True)
-        errors.append(cost_grad * sigma_deriv)
+        # calculate gradient of cost function wrt last layer before activation
+        error = self.layers[-1].get_nodes() - output # this is specifically for softmax with categorical cross entropy right now
+        self.errors.append(error)
 
-        # earlier layers
         for layer in range(len(self.layers) - 2, 0, -1):
-            sigma = self.layers[layer].get_nodes() # for testing
-            errors.append(self.weights[layer][:, 1:].T @ errors[-1] * (sigma * (1 - sigma)))
 
-        # calculate derivatives
-        for (layer, error, num) in zip(self.layers[:-1], reversed(errors), range(len(self.weights))):
-            if len(self.derivatives) < len(self.weights):
-                self.derivatives.append(np.hstack((np.reshape(error, (-1, 1)), np.outer(error, layer.get_nodes()))))
-            else:
-                self.derivatives[num] += np.hstack((np.reshape(error, (-1, 1)), np.outer(error, layer.get_nodes())))
+            # calculate gradient wrt activation of earlier layer
+            local_act_grad = self.weights[layer][:, 1:]
+            grad_act =  local_act_grad.T @ self.errors[-1]
+            # calculate gradient wrt pre activation layer
+            grad_pre = vec_der(relu, self.layers[layer].get_nodes_pre()) * grad_act
+
+            self.errors.append(grad_pre)
+
+        print(self.errors)
+
+        # calculate loss derivatives wrt weights
+        for (layer, error, num) in zip(self.layers[:-1], reversed(self.errors), range(len(self.weights))):
+            self.derivatives[num] += np.hstack((np.reshape(error, (-1, 1)), np.outer(error, layer.get_nodes())))
 
 
     def update_weights_and_biases(self):
         for (weight, derivative) in zip(self.weights, self.derivatives):
             weight -= self.learning_rate * derivative
-        self.derivatives = []
+        self.derivatives = [np.zeros(weight.shape) for weight in self.weights]
 
 
     def mini_batch_gd(inputs, outputs):
@@ -244,7 +259,7 @@ def main():
         labels = labels[:5000]
         c = 0
         for (image, label, num) in zip(images, labels, range(len(labels))):
-            if num  == 2:
+            if num  == 10:
                 wanted2 = np.zeros(10)
                 wanted2[label] = 1
                 net.gradient_check(np.array(image)/255, wanted2)
