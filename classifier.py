@@ -5,47 +5,43 @@ def vec(func, iterable):
     return np.fromiter(map(lambda x: func(x), iterable), float)
 
 
-def vec_der(func, iterable):
-    return np.fromiter(map(lambda x: func(x, derivative=True),
-                           iterable), float)
-
-
 class Layer:
-    def __init__(self, size, activation, bias=True):
+    @staticmethod
+    def add_bias(unit_matrix):
+        return np.vstack((np.ones(unit_matrix.shape[1]), unit_matrix))
+
+    def __init__(self, shape, activation, bias=True):
         self.bias = bias
         bias_node = 1 if self.bias else 0
-        self.nodes = np.zeros(size + bias_node)
-        self.nodes_pre = np.zeros(size + bias_node)
+        self.units = np.zeros(shape)
+        if bias:
+            self.units = self.add_bias(self.units)
         self.activation = activation
 
-    def set_nodes(self, content):
-        self.nodes = np.array([1] + list(content.flatten())) \
-                if self.bias else content
+    def set_units(self, units):
+        if self.bias:
+            units = self.add_bias(units)
+        self.units = units
 
     def __str__(self):
-        str_nodes = self.nodes[1:] if self.bias else self.nodes
-        bias = f" bias: {self.nodes[0]}" if self.bias else ""
-        return "[" + ", ".join(f"{el}" for el in str_nodes) + "]" + bias
+        return np.array2string(self.units)
 
     def __len__(self):
-        return len(self.nodes)
+        return len(self.units)
 
     def activate(self):
-        self.nodes_pre = self.nodes.copy()
+        self.units_pre = self.units.copy()
         if not self.bias:
-            self.nodes = self.activation(self.nodes)
-            return
-        if self.bias:
-            activated = vec(self.activation, self.nodes.flatten()[1:])
-            self.nodes = np.array([1] + list(activated))
+            self.units = self.activation(self.units)
         else:
-            self.nodes = vec(self.activation, self.nodes.flatten())
+            activated = self.activation(self.units[1:, :])
+            self.units = self.add_bias(activated)
 
-    def get_nodes(self):
-        return self.nodes[1:] if self.bias else self.nodes
+    def get_units(self):
+        return self.units[1:, :] if self.bias else self.units
 
     def get_nodes_pre(self):
-        return self.nodes_pre[1:] if self.bias else self.nodes_pre
+        return self.units_pre[1:, :] if self.bias else self.units_pre
 
 
 def sigmoid(x, derivative=False):
@@ -56,8 +52,8 @@ def sigmoid(x, derivative=False):
 
 def relu(x, derivative=False):
     if derivative:
-        return 0 if x <= 0 else 1
-    return max(0, x)
+        return vec(lambda num: 0 if num <= 0 else 1, x)
+    return vec(lambda num: max(0, num), x)
 
 
 def cost(classification, wanted, derivative=False):
@@ -89,8 +85,17 @@ class Neural_net:
     change constructor parameters, confusing rn
     sigmoid derivative is sigmoid * (1 - sigmoid),
         so no need to calculate exp again - change
+    rename nodes to units
+    !!!!!!!!!!!!!!!!!!!!!![important TODOs]!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    change preprocessor to use np arrays and squash values into [0, 1] (~ val set?)
+    whole batch into one matrix ~> layer not vector but matrix
+    start using validation set
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    implement L2 regularization
+    implement dropout regularization
+    implement adam or similar for learning rate
     """
-    def __init__(self, learning_rate, num_hid, il_size, ol_size, *hl_sizes):
+    def __init__(self, learning_rate, batch_size, num_hid, il_size, ol_size, *hl_sizes):
         """
         num_hid: amount of hidden layers
         il_size: amount of input nodes
@@ -101,7 +106,8 @@ class Neural_net:
         if len(hl_sizes) != num_hid:
             raise TypeError("please specify hidden layer sizes")
 
-        input_layer = Layer(il_size, relu)
+        input_layer = Layer((il_size, batch_size), relu)
+        # CUR HERE IN BATCH REFACTOR
         hidden_layers = list(Layer(size, relu) for size in hl_sizes)
         output_layer = Layer(ol_size, softmax, bias=False)
         self.layers = [input_layer] + hidden_layers + [output_layer]
@@ -110,7 +116,7 @@ class Neural_net:
         max_size = max(il_size, ol_size, *hl_sizes)
         interval_size = 2 / np.sqrt(max_size)
         for size1, size2 in zip([il_size, *hl_sizes], [*hl_sizes, ol_size]):
-            bias_weights = np.reshape(np.ones(size2), (-1, 1))
+            bias_weights = np.reshape(np.zeros(size2), (-1, 1))
             weight_matrix = np.random.rand(size2, size1)
             # squish weights into wanted range
             weight_matrix = interval_size * (weight_matrix - 0.5)
@@ -142,36 +148,20 @@ class Neural_net:
             self.forward()
             self.backpropagate(outp)
             calculated = self.derivatives[k][i, j]
+            self.weights = cur_weights.copy()
             self.weights[k][i, j] += epsilon
             self.set_input_layer(inp)
             self.forward()
-            plus = cost(self.layers[-1].get_nodes(), outp)
+            plus = cat_cross_entropy(self.layers[-1].get_nodes(), outp)
+            self.weights = cur_weights.copy()
             self.weights[k][i, j] -= epsilon
             self.set_input_layer(inp)
             self.forward()
-            minus = cost(self.layers[-1].get_nodes(), outp)
+            minus = cat_cross_entropy(self.layers[-1].get_nodes(), outp)
             numerical_approx = (plus - minus) / (2 * epsilon)
             if (d := abs(calculated - numerical_approx)) > 0.01:
                 relative_dif = d / max(abs(calculated), abs(numerical_approx))
-                print(relative_dif, calculated, numerical_approx)
-        self.set_input_layer(inp)
-        self.forward()
-        self.backpropagate(outp)
-        cur_error = self.errors[-1]
-        for k in range(len(cur_error)):
-            calculated = cur_error[k]
-            self.layers[-1].nodes = self.layers[-1].nodes_pre
-            self.layers[-1].nodes[k] -= epsilon
-            self.layers[-1].activate()
-            minus = cost(self.layers[-1].get_nodes(), outp)
-            self.layers[-1].nodes = self.layers[-1].nodes_pre
-            self.layers[-1].nodes[k] += epsilon
-            self.layers[-1].activate()
-            plus = cost(self.layers[-1].get_nodes(), outp)
-            numerical_approx = (plus - minus) / (2 * epsilon)
-            print(abs(calculated - numerical_approx) / max(
-                abs(calculated), abs(numerical_approx)),
-                        calculated, numerical_approx)
+                print(k, i, j, relative_dif, calculated, numerical_approx)
 
     def forward(self):
         for layer in range(len(self.layers) - 1):
@@ -196,8 +186,7 @@ class Neural_net:
             local_grad_act = self.weights[layer][:, 1:]
             grad_act = local_grad_act.T @ self.errors[-1]
             # calculate gradient wrt pre activation layer
-            grad_pre = vec_der(
-                    relu, self.layers[layer].get_nodes_pre()) * grad_act
+            grad_pre = relu(self.layers[layer].get_nodes_pre(), derivative=True) * grad_act
 
             self.errors.append(grad_pre)
 
@@ -216,15 +205,19 @@ class Neural_net:
             weight -= self.learning_rate * derivative
         self.derivatives = [np.zeros(weight.shape) for weight in self.weights]
 
-    def mini_batch_gd(inputs, outputs):
+    def mini_batch_gd(self, inputs, outputs):
         if len(inputs) != len(outputs):
             raise TypeError("#input not equal to #outputs")
 
+        costs = []
         for inp, outp in zip(inputs, outputs):
-            self.forward(inp)
+            self.set_input_layer(1/255 * np.array(inp))   #  TODO CHANGE !!!!!!!!!!!!!!!!!!!!!!!!
+            self.forward()
             self.backpropagate(outp)
+            costs.append(cat_cross_entropy(self.layers[-1].get_nodes(), outp))
 
         self.update_weights_and_biases()
+        return sum(costs) / len(costs)
 
     def save_weights(self):
         pass  # TODO
@@ -257,7 +250,7 @@ def main():
 
     learning_rate = .0001
     il_size = 28 ** 2
-    hl_size = 500
+    hl_size = 300
     ol_size = 10
     net = Neural_net(learning_rate, 1, il_size, ol_size, hl_size)
 
@@ -267,28 +260,28 @@ def main():
 
     if retrain:
         costs = []
-        images = images[:5000]
-        labels = labels[:5000]
-        c = 0
-        for num, (image, label) in enumerate(zip(images, labels)):
-            if num == 10:
-                wanted2 = np.zeros(10)
-                wanted2[label] = 1
-                net.gradient_check(np.array(image)/255, wanted2)
+        batch_size = 500
+        image_batches = np.array_split(images[:20000], 20000 // batch_size)
+        label_batches = np.array_split(labels[:20000], 20000 // batch_size)
+        wanted_batches = []
+        for batch in label_batches:
+            b = []
+            for el in batch:
+                wanted = np.zeros(10)
+                wanted[el] = 1
+                b.append(wanted)
+            wanted_batches.append(b)
+        for num, (ibatch, wbatch) in enumerate(zip(image_batches, wanted_batches)):
+                costs.append(net.mini_batch_gd(ibatch, wbatch))
+                net.gradient_check(np.array(ibatch[0])/255, wbatch[0])
                 exit()
-            net.set_input_layer(np.array(image)/255)
-            net.forward()
-            wanted = np.zeros(10)
-            wanted[label] = 1
-            net.backpropagate(wanted)
-            c += cat_cross_entropy(net.layers[-1].get_nodes(), wanted)
-            net.update_weights_and_biases()
+
 
         print("training done")
 
-    else:
-        weights_hid_out = np.load("who.npy")
-        weights_in_hid = np.load("wih.npy")
+    #else:
+        # weights_hid_out = np.load("who.npy")
+        # weights_in_hid = np.load("wih.npy")
 
     plt.plot(costs)
     plt.show()
