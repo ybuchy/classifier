@@ -1,4 +1,4 @@
-from preproc import *
+import numpy as np
 
 
 def vec(func, iterable):
@@ -76,7 +76,12 @@ def cat_cross_entropy(classification, wanted):
     return -np.dot(wanted, np.log(classification))
 
 
-class Neural_net:
+class NN_classifier:
+    """
+    Neural net for multi-class classification problems.
+    Currently uses softmax on output layer with categorical cross entropy as loss function
+    for hidden layers, the default is relu right now
+    """
     """
     TODO:
     change activation functions of layers (default relu?)
@@ -118,7 +123,7 @@ class Neural_net:
         for size1, size2 in zip([il_size, *hl_sizes], [*hl_sizes, ol_size]):
             bias_weights = np.reshape(np.zeros(size2), (-1, 1))
             weight_matrix = np.random.rand(size2, size1)
-            # squish weights into wanted range
+            # squash weights into wanted range
             weight_matrix = interval_size * (weight_matrix - 0.5)
             # add bias weights for bias calculation
             weight_matrix = np.hstack((bias_weights, weight_matrix))
@@ -223,92 +228,3 @@ class Neural_net:
         pass  # TODO
     # np.save("who.npy", weights_hid_out)
     # np.save("wih.npy", weights_in_hid)
-
-
-def main():
-    files = ["train-images-idx3-ubyte", "train-labels-idx1-ubyte",
-             "t10k-images-idx3-ubyte", "t10k-labels-idx1-ubyte"]
-
-    print("loading training data...")
-    tr_img_fileinfo = read_image_file(files[0])
-    images = tr_img_fileinfo["images"]
-    tr_label_fileinfo = read_label_file(files[1])
-    labels = tr_label_fileinfo["labels"]
-    print("finished")
-
-    # view_img =
-    # lambda num: view_image(images[num], tr_img_fileinfo["num_rows"],
-    #                                  tr_img_fileinfo["num_cols"])
-    # view_img(99)
-    # print(labels[99])
-
-    # input layer size: 28^2 (amount of pixels)
-    # hidden layer size: try different ones to prevent overfitting (why?)
-    # first try: 500 (so about 64%)
-    # (try out Grid search(hyperparameter optimization) later
-    # output layer size: 10 (classification to number)
-
-    learning_rate = .0001
-    il_size = 28 ** 2
-    hl_size = 300
-    ol_size = 10
-    net = Neural_net(learning_rate, 1, il_size, ol_size, hl_size)
-
-    print("training model...")
-
-    retrain = True
-
-    if retrain:
-        costs = []
-        batch_size = 500
-        image_batches = np.array_split(images[:20000], 20000 // batch_size)
-        label_batches = np.array_split(labels[:20000], 20000 // batch_size)
-        wanted_batches = []
-        for batch in label_batches:
-            b = []
-            for el in batch:
-                wanted = np.zeros(10)
-                wanted[el] = 1
-                b.append(wanted)
-            wanted_batches.append(b)
-        for num, (ibatch, wbatch) in enumerate(zip(image_batches, wanted_batches)):
-                costs.append(net.mini_batch_gd(ibatch, wbatch))
-                net.gradient_check(np.array(ibatch[0])/255, wbatch[0])
-                exit()
-
-
-        print("training done")
-
-    #else:
-        # weights_hid_out = np.load("who.npy")
-        # weights_in_hid = np.load("wih.npy")
-
-    plt.plot(costs)
-    plt.show()
-
-    print("loading test data")
-    img_fileinfo = read_image_file(files[2])
-    images = img_fileinfo["images"]
-    label_fileinfo = read_label_file(files[3])
-    labels = label_fileinfo["labels"]
-    print("finished")
-
-    print("testing model...")
-    num_correct = 0
-    for num, (image, label) in enumerate(zip(images, labels)):
-        net.set_input_layer(np.array(image)/255)
-        net.forward()
-        output = net.layers[-1].get_nodes()
-        wanted = np.zeros(10)
-        wanted[label] = 1
-        highest = list(output).index(max(output))
-        if highest == label:
-            num_correct += 1
-        if num == 3000:
-            break
-
-    print(num_correct / 3000)
-
-
-if __name__ == "__main__":
-    main()
