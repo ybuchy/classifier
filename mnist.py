@@ -25,30 +25,15 @@ def main():
     test_set = preproc.get_test_set(batch_size)
 
     print("finished")
-
-    exit()
-
-
-    net = NN_classifier(learning_rate, 1, il_size, ol_size, hl_size)
-
     print("training model...")
+
+    net = NN_classifier(learning_rate, batch_size, 1, il_size, ol_size, hl_size)
 
     retrain = True
 
     if retrain:
         costs = []
-        batch_size = 500
-        image_batches = np.array_split(images[:20000], 20000 // batch_size)
-        label_batches = np.array_split(labels[:20000], 20000 // batch_size)
-        wanted_batches = []
-        for batch in label_batches:
-            b = []
-            for el in batch:
-                wanted = np.zeros(10)
-                wanted[el] = 1
-                b.append(wanted)
-            wanted_batches.append(b)
-        for num, (ibatch, wbatch) in enumerate(zip(image_batches, wanted_batches)):
+        for num, (ibatch, wbatch) in enumerate(test_set):
                 costs.append(net.mini_batch_gd(ibatch, wbatch))
                 net.gradient_check(ibatch[0], wbatch[0])
                 exit()

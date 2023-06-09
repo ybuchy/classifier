@@ -1,8 +1,10 @@
 import numpy as np
 
 
+"""
 def vec(func, iterable):
     return np.fromiter(map(lambda x: func(x), iterable), float)
+"""
 
 
 class Layer:
@@ -52,8 +54,8 @@ def sigmoid(x, derivative=False):
 
 def relu(x, derivative=False):
     if derivative:
-        return vec(lambda num: 0 if num <= 0 else 1, x)
-    return vec(lambda num: max(0, num), x)
+        return numpy.vectorize(lambda num: 0 if num <= 0 else 1)(x)
+    return numpy.vectorize(lambda num: max(0, num))(x)
 
 
 def cost(classification, wanted, derivative=False):
@@ -63,6 +65,7 @@ def cost(classification, wanted, derivative=False):
     return 1/(2 * len(dif)) * np.dot(dif, dif)
 
 
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! sum the matrix columns independently
 def softmax(x, derivative=False):
     if derivative:
         jacobian = np.outer(x, -x) + np.diag(x)
@@ -92,9 +95,9 @@ class NN_classifier:
         so no need to calculate exp again - change
     rename nodes to units
     !!!!!!!!!!!!!!!!!!!!!![important TODOs]!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    change preprocessor to use np arrays and squash values into [0, 1] (~ val set?)
     whole batch into one matrix ~> layer not vector but matrix
     start using validation set
+    careful to evaluate softmax and stuff only column wise (how to do efficiently?)
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     implement L2 regularization
     implement dropout regularization
@@ -112,19 +115,16 @@ class NN_classifier:
             raise TypeError("please specify hidden layer sizes")
 
         input_layer = Layer((il_size, batch_size), relu)
-        # CUR HERE IN BATCH REFACTOR
-        hidden_layers = list(Layer(size, relu) for size in hl_sizes)
-        output_layer = Layer(ol_size, softmax, bias=False)
+        hidden_layers = list(Layer((size, batch_size), relu) for size in hl_sizes)
+        output_layer = Layer((ol_size, batch_size), softmax, bias=False)
         self.layers = [input_layer] + hidden_layers + [output_layer]
 
         self.weights = []
-        max_size = max(il_size, ol_size, *hl_sizes)
-        interval_size = 2 / np.sqrt(max_size)
         for size1, size2 in zip([il_size, *hl_sizes], [*hl_sizes, ol_size]):
             bias_weights = np.reshape(np.zeros(size2), (-1, 1))
             weight_matrix = np.random.rand(size2, size1)
             # squash weights into wanted range
-            weight_matrix = interval_size * (weight_matrix - 0.5)
+            weight_matrix = np.sqrt(2 / size1) * (weight_matrix - 0.5)
             # add bias weights for bias calculation
             weight_matrix = np.hstack((bias_weights, weight_matrix))
             self.weights.append(weight_matrix)
@@ -132,15 +132,16 @@ class NN_classifier:
         self.learning_rate = learning_rate
         self.derivatives = [np.zeros(weight.shape) for weight in self.weights]
 
-    def set_input_layer(self, nodes):
+    def set_input_layer(self, units):
         if len(nodes) != len(self.layers[0]) - 1:
             raise TypeError("wrong amount of nodes")
 
-        self.layers[0].set_nodes(nodes)
+        self.layers[0].set_units(units)
 
     def show_output_layer(self):
         print(self.layers[-1])
 
+    """
     def gradient_check(self, inp, outp):
         cur_weights = self.weights.copy()
         epsilon = 0.0001
@@ -167,11 +168,12 @@ class NN_classifier:
             if (d := abs(calculated - numerical_approx)) > 0.01:
                 relative_dif = d / max(abs(calculated), abs(numerical_approx))
                 print(k, i, j, relative_dif, calculated, numerical_approx)
+    """
 
     def forward(self):
         for layer in range(len(self.layers) - 1):
-            self.layers[layer+1].set_nodes(
-                    self.weights[layer] @ self.layers[layer].nodes)
+            self.layers[layer+1].set_units(
+                    self.weights[layer] @ self.layers[layer].units)
             self.layers[layer+1].activate()
 
     def backpropagate(self, output):
@@ -181,7 +183,7 @@ class NN_classifier:
         self.errors = []
 
         # calculate gradient of cost function wrt last layer before activation
-        error = self.layers[-1].get_nodes() - output
+        error = self.layers[-1].get_units() - output
         # this is specifically for softmax with categorical cross entropy
         self.errors.append(error)
 
@@ -191,19 +193,20 @@ class NN_classifier:
             local_grad_act = self.weights[layer][:, 1:]
             grad_act = local_grad_act.T @ self.errors[-1]
             # calculate gradient wrt pre activation layer
-            grad_pre = relu(self.layers[layer].get_nodes_pre(), derivative=True) * grad_act
+            grad_pre = relu(self.layers[layer].get_units_pre(), derivative=True) * grad_act
 
             self.errors.append(grad_pre)
 
         self.errors.reverse()
 
+        # CUR HERE IN RF @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # calculate loss derivatives wrt weights
         for num, (layer, err) in enumerate(zip(self.layers[:-1], self.errors)):
-            weight_derivatives = np.outer(err, layer.get_nodes())
-            bias_derivatives = np.reshape(err, (-1, 1))
+            weight_derivatives = err @ layer.get_units() # not sure!, was np.outer(err, layer.get_nodes()
+            bias_derivatives = np.sum(err, axis=1) # not sure!
             derivative_matrix = np.hstack((bias_derivatives,
                                            weight_derivatives))
-            self.derivatives[num] += derivative_matrix
+            self.derivatives.append(derivative_matrix)
 
     def update_weights_and_biases(self):
         for weight, derivative in zip(self.weights, self.derivatives):
@@ -216,7 +219,7 @@ class NN_classifier:
 
         costs = []
         for inp, outp in zip(inputs, outputs):
-            self.set_input_layer(1/255 * np.array(inp))   #  TODO CHANGE !!!!!!!!!!!!!!!!!!!!!!!!
+            self.set_input_layer(inp)
             self.forward()
             self.backpropagate(outp)
             costs.append(cat_cross_entropy(self.layers[-1].get_nodes(), outp))

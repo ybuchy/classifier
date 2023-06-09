@@ -72,9 +72,9 @@ class Preproc:
             offset = 8
             for label_num in range(file_info["num_labels"]):
                 label = b[offset + label_num]
-                ## Add label as one-hot encoded vector
-                #lb = np.zeros(10)
-                #lb[label] = 1
+                # add label as one-hot encoded vector
+                lb = np.zeros(10)
+                lb[label] = 1
                 file_info["labels"].append(label)
 
         return file_info
@@ -85,26 +85,26 @@ class Preproc:
         label_batches = []
         for offset in range(len(images) // batch_size):
             cur_ind = offset * batch_size
-            img_batches.append(images[cur_ind:cur_ind+batch_size])
-            label_batches.append(labels[cur_ind:cur_ind+batch_size])
-        img_batches.append(images[len(images) // batch_size * batch_size:])
-        label_batches.append(labels[len(labels) // batch_size * batch_size:])
+            img_batches.append(images[cur_ind:cur_ind+batch_size].T)
+            label_batches.append(labels[cur_ind:cur_ind+batch_size].T)
+        img_batches.append(images[len(images) // batch_size * batch_size:].T)
+        label_batches.append(labels[len(labels) // batch_size * batch_size:].T)
         return img_batches, label_batches
 
     def get_training_set(self, batch_size):
         # TODO check that info has been loaded into memory already
         tr_images = np.array(self.tr_set_file_info["images"])
         tr_labels = np.array(self.tr_label_file_info["labels"])
-        return zip(self.generate_batches(tr_images, tr_labels, batch_size))
+        return list(zip(self.generate_batches(tr_images, tr_labels, batch_size)))
             
     def get_validation_set(self, batch_size):
         # TODO check that info has been loaded into memory already
         val_size = int(1/5 * self.tr_set_file_info["num_images"])
-        test_images = np.array(self.test_set_file_info["images"])
-        test_labels = np.array(self.test_label_file_info["labels"])
+        test_images = np.array(self.test_set_file_info["images"]).T
+        test_labels = np.array(self.test_label_file_info["labels"]).T
         val_images = test_images[-val_size:]
         val_labels = test_labels[-val_size:]
-        return zip(self.generate_batches(val_images, val_labels, batch_size))
+        return list(zip(self.generate_batches(val_images, val_labels, batch_size)))
 
     def get_test_set(self, batch_size):
         # TODO check that info has been loaded into memory already
@@ -113,14 +113,13 @@ class Preproc:
         test_labels = np.array(self.test_label_file_info["labels"])
         test_images = test_images[:val_size]
         test_labels = test_labels[:val_size]
-        return zip(self.generate_batches(test_images, test_labels, batch_size))
+        return list(zip(self.generate_batches(test_images, test_labels, batch_size)))
 
     def load(self):
         self.tr_set_file_info = self.read_image_file(self.tr_file)
         self.tr_label_file_info = self.read_label_file(self.tr_label_file)
         self.test_set_file_info = self.read_image_file(self.test_file)
         self.test_label_file_info = self.read_label_file(self.test_label_file)
-        print("done")
         
     def __init__(self, tr_set, tr_labels, test_set, test_label):
         self.tr_file = tr_set
