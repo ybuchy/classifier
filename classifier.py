@@ -65,7 +65,6 @@ def cost(classification, wanted, derivative=False):
     return 1/(2 * len(dif)) * np.dot(dif, dif)
 
 
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! sum the matrix columns independently
 def softmax(x, derivative=False):
     if derivative:
         jacobian = np.outer(x, -x) + np.diag(x)
@@ -75,9 +74,15 @@ def softmax(x, derivative=False):
     return np.exp(new_x) / np.sum(np.exp(new_x))
 
 
+def softmax_batchmatrix(x):
+    new_x = x - np.amax(x, axis=0)
+    return np.exp(new_x) / np.sum(new_x, axis=0)
+
 def cat_cross_entropy(classification, wanted):
     return -np.dot(wanted, np.log(classification))
 
+def cce_batchmatrix(classifications, wanteds):
+    return -np.diag(classifications.T @ wanteds)
 
 class NN_classifier:
     """
@@ -95,9 +100,9 @@ class NN_classifier:
         so no need to calculate exp again - change
     rename nodes to units
     !!!!!!!!!!!!!!!!!!!!!![important TODOs]!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    whole batch into one matrix ~> layer not vector but matrix
+    whole batch into one matrix ~> layer not vector but matrix DONE (debug now)
     start using validation set
-    careful to evaluate softmax and stuff only column wise (how to do efficiently?)
+    write unittests ~> use for batch debugging?
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     implement L2 regularization
     implement dropout regularization
@@ -199,7 +204,6 @@ class NN_classifier:
 
         self.errors.reverse()
 
-        # CUR HERE IN RF @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         # calculate loss derivatives wrt weights
         for num, (layer, err) in enumerate(zip(self.layers[:-1], self.errors)):
             weight_derivatives = err @ layer.get_units() # not sure!, was np.outer(err, layer.get_nodes()
@@ -213,19 +217,16 @@ class NN_classifier:
             weight -= self.learning_rate * derivative
         self.derivatives = [np.zeros(weight.shape) for weight in self.weights]
 
-    def mini_batch_gd(self, inputs, outputs):
-        if len(inputs) != len(outputs):
-            raise TypeError("#input not equal to #outputs")
+    def mini_batch_gd(self, inp, outp):
+        if inp.shape != outp.shape:
+            raise TypeError("input shape not equal to output shape!")
 
-        costs = []
-        for inp, outp in zip(inputs, outputs):
-            self.set_input_layer(inp)
-            self.forward()
-            self.backpropagate(outp)
-            costs.append(cat_cross_entropy(self.layers[-1].get_nodes(), outp))
-
+        self.set_input_layer(inp)
+        self.forward()
+        self.backpropagate(outp)
+        loss = cat_cross_entropy(self.layers[-1].get_nodes(), outp)
         self.update_weights_and_biases()
-        return sum(costs) / len(costs)
+        return sum(loss) / len(loss)
 
     def save_weights(self):
         pass  # TODO
