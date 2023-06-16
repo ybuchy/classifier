@@ -9,8 +9,8 @@ def vec(func, iterable):
 
 class Layer:
     @staticmethod
-    def add_bias(unit_matrix):
-        return np.vstack((np.ones(unit_matrix.shape[1]), unit_matrix))
+    def add_bias(unit_tensor):
+        return np.vstack((np.ones(unit_tensor.shape[1]), unit_tensor))
 
     def __init__(self, shape, activation, bias=True):
         self.bias = bias
@@ -46,27 +46,36 @@ class Layer:
         return self.units_pre[1:, :] if self.bias else self.units_pre
 
 
+"""
 def sigmoid(x, derivative=False):
     if derivative:
         return np.exp(-x)/((1 + np.exp(-x))**2)
     return 1/(1 + np.exp(-x))
+"""
 
 
+# TODO interesting, works sometimes but not always (just returns all zeros matrix if it doesnt) @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+"""
 def relu(x, derivative=False):
     if derivative:
         return np.vectorize(lambda num: 0 if num <= 0 else 1)(x)
     return np.vectorize(lambda num: max(0, num))(x)
+"""
 
 
-def relu_batchtensor(x):
-    return np.vectorize(lambda num: max(0, num))(x)
+def relu_batchtensor(x, derivative=False):
+    if derivative:
+        return np.maximum(np.zeros(x.shape), np.sign(x)) # TODO is there a better way to write this?
+    return np.maximum(np.zeros(x.shape), x)
 
 
+"""
 def cost(classification, wanted, derivative=False):
     dif = wanted - classification
     if derivative:
         return -dif/len(dif)
     return 1/(2 * len(dif)) * np.dot(dif, dif)
+"""
 
 
 def softmax(x, derivative=False):
@@ -79,10 +88,10 @@ def softmax(x, derivative=False):
 
 
 def softmax_batchtensor(x):
-    new_x = x - np.amax(x, axis=1)
+    new_x = x - np.amax(x, axis=0)
     # numerical stabilization
     e_new_x = np.exp(new_x)
-    return e_new_x / np.sum(e_new_x, axis=1)
+    return e_new_x / np.sum(e_new_x, axis=0)
 
 
 def cat_cross_entropy(classification, wanted):
@@ -129,8 +138,9 @@ class NN_classifier:
         if len(hl_sizes) != num_hid:
             raise TypeError("please specify hidden layer sizes")
 
-        input_layer = Layer((il_size, batch_size), relu)
-        hidden_layers = list(Layer((size, batch_size), relu) for size in hl_sizes)
+        input_layer = Layer((il_size, batch_size), relu_batchtensor)
+        hidden_layers = list(Layer((size, batch_size), relu_batchtensor)
+                             for size in hl_sizes)
         output_layer = Layer((ol_size, batch_size), softmax_batchtensor, bias=False)
         self.layers = [input_layer] + hidden_layers + [output_layer]
 
@@ -182,7 +192,9 @@ class NN_classifier:
                 print(k, i, j, relative_dif, calculated, numerical_approx)
     """
 
-    def forward(self):
+    def forward(self, inp_tensor):
+        self.layers[0].set_units(inp_tensor)        
+
         for layer in range(len(self.layers) - 1):
             self.layers[layer+1].set_units(
                     self.weights[layer] @ self.layers[layer].units)
@@ -205,7 +217,7 @@ class NN_classifier:
             local_grad_act = self.weights[layer][:, 1:]
             grad_act = local_grad_act.T @ self.errors[-1]
             # calculate gradient wrt pre activation layer
-            grad_pre = relu(self.layers[layer].get_units_pre(), derivative=True) * grad_act
+            grad_pre = relu_batchtensor(self.layers[layer].get_units_pre(), derivative=True) * grad_act
 
             self.errors.append(grad_pre)
 
@@ -227,8 +239,7 @@ class NN_classifier:
         #self.derivatives = [np.zeros(weight.shape) for weight in self.weights]
 
     def mini_batch_gd(self, inp, outp):
-        self.set_input_layer(inp)
-        self.forward()
+        self.forward(inp)
         self.backpropagate(outp)
         loss = cat_cross_entropy(self.layers[-1].get_units(), outp)
         #self.update_weights_and_biases()
