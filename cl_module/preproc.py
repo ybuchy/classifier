@@ -2,16 +2,16 @@ import numpy as np
 import numpy.typing as npt
 import matplotlib.pyplot as plt
 from PIL import Image
-from typing import TypeAlias
+#from typing import TypeAlias
 from collections.abc import Iterable
 
 # Own types for type hinting
-image: TypeAlias = npt.NDArray[np.int_]
-label: TypeAlias = npt.NDArray[np.int_]
+#image: TypeAlias = npt.NDArray[np.int_]
+#label: TypeAlias = npt.NDArray[np.int_]
 # fileinfo ~> own class?
-fileinfo: TypeAlias = dict[str, str | int | list[image]]
-image_batch: TypeAlias = list[image]
-label_batch: TypeAlias = list[label]
+#fileinfo: TypeAlias = dict[str, str | int | list[image]]
+#image_batch: TypeAlias = list[image]
+#label_batch: TypeAlias = list[label]
 
 
 class Preproc:
@@ -51,7 +51,8 @@ class Preproc:
     """
 
     @staticmethod
-    def read_image_file(filename: str) -> fileinfo:
+    def read_image_file(filename):
+#    def read_image_file(filename: str) -> fileinfo:
         with open(filename, "rb") as f:
             b = f.read()
 
@@ -76,7 +77,8 @@ class Preproc:
         return file_info
 
     @staticmethod
-    def read_label_file(filename: str) -> fileinfo:
+    def read_label_file(filename):
+#    def read_label_file(filename: str) -> fileinfo:
         with open(filename, "rb") as f:
             b = f.read()
             file_info = {}
@@ -95,9 +97,10 @@ class Preproc:
         return file_info
 
     @staticmethod
-    def generate_batches(images: Iterable[image],
-                         labels: Iterable[label],
-                         batch_size: int) -> tuple[list[image_batch], list[label_batch]]:
+    def generate_batches(images, labels, batch_size):
+#    def generate_batches(images: Iterable[image],
+#                         labels: Iterable[label],
+#                         batch_size: int) -> tuple[list[image_batch], list[label_batch]]:
         img_batches = []
         label_batches = []
         for offset in range(len(images) // batch_size):
@@ -109,7 +112,8 @@ class Preproc:
             label_batches.append(labels[ind:].T)
         return img_batches, label_batches
 
-    def get_training_set(self, batch_size: int) -> list[tuple[image_batch, label_batch]]:
+    def get_training_set(self, batch_size):
+    #def get_training_set(self, batch_size: int) -> list[tuple[image_batch, label_batch]]:
         if not self.loaded:
             raise AttributeError("mnist data not in memory yet, use load() first")
         val_size = int(1/5 * self.tr_set_file_info["num_images"])
@@ -121,7 +125,8 @@ class Preproc:
             tr_images, tr_labels, batch_size)
         return list(zip(img_batches, label_batches))
 
-    def get_validation_set(self, batch_size: int) -> list[tuple[image_batch, label_batch]]:
+    def get_validation_set(self, batch_size):
+#    def get_validation_set(self, batch_size: int) -> list[tuple[image_batch, label_batch]]:
         if not self.loaded:
             raise AttributeError("mnist data not in memory yet, use load() first")
         val_size = int(1/5 * self.tr_set_file_info["num_images"])
@@ -133,7 +138,8 @@ class Preproc:
             val_images, val_labels, batch_size)
         return list(zip(img_batches, label_batches))
 
-    def get_test_set(self, batch_size: int) -> list[tuple[image_batch, label_batch]]:
+    def get_test_set(self, batch_size):
+        #def get_test_set(self, batch_size: int) -> list[tuple[image_batch, label_batch]]:
         if not self.loaded:
             raise AttributeError("mnist data not in memory yet, use load() first")
         test_images = np.array(self.test_set_file_info["images"])
@@ -143,6 +149,7 @@ class Preproc:
         return list(zip(img_batches, label_batches))
 
     def load(self) -> None:
+
         self.tr_set_file_info = self.read_image_file(self.tr_file)
         self.tr_label_file_info = self.read_label_file(self.tr_label_file)
         self.test_set_file_info = self.read_image_file(self.test_file)

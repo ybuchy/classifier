@@ -1,5 +1,5 @@
-from preproc import *
-from classifier import *
+from cl_module.preproc import *
+from cl_module.classifier import *
 
 
 def main():
@@ -16,8 +16,8 @@ def main():
 
     print("loading mnist data...")
 
-    files = ["train-images-idx3-ubyte", "train-labels-idx1-ubyte",
-             "t10k-images-idx3-ubyte", "t10k-labels-idx1-ubyte"]
+    files = ["data/train-images-idx3-ubyte", "data/train-labels-idx1-ubyte",
+             "data/t10k-images-idx3-ubyte", "data/t10k-labels-idx1-ubyte"]
     preproc = Preproc(*files)
     preproc.load()
     tr_set = preproc.get_training_set(batch_size)
@@ -29,40 +29,16 @@ def main():
 
     net = NN_classifier(learning_rate, batch_size, 1, il_size, ol_size, hl_size)
 
-    retrain = True
+    costs = []
+    for num, (ibatch, wbatch) in enumerate(test_set):
+        costs.append(net.mini_batch_gd(ibatch, wbatch))
+        if num == 5:
+            break
 
-    if retrain:
-        costs = []
-        for num, (ibatch, wbatch) in enumerate(test_set):
-                costs.append(net.mini_batch_gd(ibatch, wbatch))
-                net.gradient_check(ibatch[0], wbatch[0])
-                exit()
-            
-
-        print("training done")
-
-    #else:
-        # weights_hid_out = np.load("who.npy")
-        # weights_in_hid = np.load("wih.npy")
+    print("training done")
 
     plt.plot(costs)
     plt.show()
-
-    print("testing model...")
-    num_correct = 0
-    for num, (image, label) in enumerate(zip(images, labels)):
-        net.set_input_layer(image)
-        net.forward()
-        output = net.layers[-1].get_nodes()
-        wanted = np.zeros(10)
-        wanted[label] = 1
-        highest = list(output).index(max(output))
-        if highest == label:
-            num_correct += 1
-        if num == 3000:
-            break
-
-    print(num_correct / 3000)
 
 
 if __name__ == "__main__":

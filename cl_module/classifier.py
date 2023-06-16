@@ -42,7 +42,7 @@ class Layer:
     def get_units(self):
         return self.units[1:, :] if self.bias else self.units
 
-    def get_nodes_pre(self):
+    def get_units_pre(self):
         return self.units_pre[1:, :] if self.bias else self.units_pre
 
 
@@ -54,8 +54,12 @@ def sigmoid(x, derivative=False):
 
 def relu(x, derivative=False):
     if derivative:
-        return numpy.vectorize(lambda num: 0 if num <= 0 else 1)(x)
-    return numpy.vectorize(lambda num: max(0, num))(x)
+        return np.vectorize(lambda num: 0 if num <= 0 else 1)(x)
+    return np.vectorize(lambda num: max(0, num))(x)
+
+
+def relu_batchtensor(x):
+    return np.vectorize(lambda num: max(0, num))(x)
 
 
 def cost(classification, wanted, derivative=False):
@@ -74,15 +78,20 @@ def softmax(x, derivative=False):
     return np.exp(new_x) / np.sum(np.exp(new_x))
 
 
-def softmax_batchmatrix(x):
-    new_x = x - np.amax(x, axis=0)
-    return np.exp(new_x) / np.sum(new_x, axis=0)
+def softmax_batchtensor(x):
+    new_x = x - np.amax(x, axis=1)
+    # numerical stabilization
+    e_new_x = np.exp(new_x)
+    return e_new_x / np.sum(e_new_x, axis=1)
+
 
 def cat_cross_entropy(classification, wanted):
-    return -np.dot(wanted, np.log(classification))
+    return -np.inner(wanted, np.log(classification))
 
-def cce_batchmatrix(classifications, wanteds):
-    return -np.diag(classifications.T @ wanteds)
+
+def cat_cross_entropy_batchtensor(classification, wanted):
+    return -np.diag(wanted @ np.log(classification).T)
+
 
 class NN_classifier:
     """
@@ -103,6 +112,7 @@ class NN_classifier:
     whole batch into one matrix ~> layer not vector but matrix DONE (debug now)
     start using validation set
     write unittests ~> use for batch debugging?
+    do forward(input), set input layer feels kinda useless
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     implement L2 regularization
     implement dropout regularization
@@ -121,7 +131,7 @@ class NN_classifier:
 
         input_layer = Layer((il_size, batch_size), relu)
         hidden_layers = list(Layer((size, batch_size), relu) for size in hl_sizes)
-        output_layer = Layer((ol_size, batch_size), softmax, bias=False)
+        output_layer = Layer((ol_size, batch_size), softmax_batchtensor, bias=False)
         self.layers = [input_layer] + hidden_layers + [output_layer]
 
         self.weights = []
@@ -138,9 +148,6 @@ class NN_classifier:
         self.derivatives = [np.zeros(weight.shape) for weight in self.weights]
 
     def set_input_layer(self, units):
-        if len(nodes) != len(self.layers[0]) - 1:
-            raise TypeError("wrong amount of nodes")
-
         self.layers[0].set_units(units)
 
     def show_output_layer(self):
@@ -205,27 +212,26 @@ class NN_classifier:
         self.errors.reverse()
 
         # calculate loss derivatives wrt weights
+        derivatives = []
         for num, (layer, err) in enumerate(zip(self.layers[:-1], self.errors)):
-            weight_derivatives = err @ layer.get_units() # not sure!, was np.outer(err, layer.get_nodes()
-            bias_derivatives = np.sum(err, axis=1) # not sure!
+            weight_derivatives = err @ layer.get_units().T # not sure!, was np.outer(err, layer.get_nodes())
+            bias_derivatives = np.reshape(np.sum(err, axis=1), (-1, 1)) # not sure!
             derivative_matrix = np.hstack((bias_derivatives,
                                            weight_derivatives))
-            self.derivatives.append(derivative_matrix)
+            derivatives.append(derivative_matrix)
 
-    def update_weights_and_biases(self):
-        for weight, derivative in zip(self.weights, self.derivatives):
+        for weight, derivative in zip(self.weights, derivatives):
             weight -= self.learning_rate * derivative
-        self.derivatives = [np.zeros(weight.shape) for weight in self.weights]
+
+        #def update_weights_and_biases(self):
+        #self.derivatives = [np.zeros(weight.shape) for weight in self.weights]
 
     def mini_batch_gd(self, inp, outp):
-        if inp.shape != outp.shape:
-            raise TypeError("input shape not equal to output shape!")
-
         self.set_input_layer(inp)
         self.forward()
         self.backpropagate(outp)
-        loss = cat_cross_entropy(self.layers[-1].get_nodes(), outp)
-        self.update_weights_and_biases()
+        loss = cat_cross_entropy(self.layers[-1].get_units(), outp)
+        #self.update_weights_and_biases()
         return sum(loss) / len(loss)
 
     def save_weights(self):
