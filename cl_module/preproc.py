@@ -125,28 +125,28 @@ class Preproc:
             tr_images, tr_labels, batch_size)
         return list(zip(img_batches, label_batches))
 
-    def get_validation_set(self, batch_size):
+    def get_validation_set(self):
 #    def get_validation_set(self, batch_size: int) -> list[tuple[image_batch, label_batch]]:
         if not self.loaded:
             raise AttributeError("mnist data not in memory yet, use load() first")
         val_size = int(1/5 * self.tr_set_file_info["num_images"])
-        test_images = np.array(self.tr_set_file_info["images"])
-        test_labels = np.array(self.tr_label_file_info["labels"])
-        val_images = test_images[-val_size:]
-        val_labels = test_labels[-val_size:]
+        tr_images = np.array(self.tr_set_file_info["images"])
+        tr_labels = np.array(self.tr_label_file_info["labels"])
+        val_images = tr_images[-val_size:]
+        val_labels = tr_labels[-val_size:]
         img_batches, label_batches = self.generate_batches(
-            val_images, val_labels, batch_size)
-        return list(zip(img_batches, label_batches))
+            val_images, val_labels, val_size)
+        return (img_batches[0], label_batches[0])
 
-    def get_test_set(self, batch_size):
+    def get_test_set(self):
         #def get_test_set(self, batch_size: int) -> list[tuple[image_batch, label_batch]]:
         if not self.loaded:
             raise AttributeError("mnist data not in memory yet, use load() first")
         test_images = np.array(self.test_set_file_info["images"])
         test_labels = np.array(self.test_label_file_info["labels"])
         img_batches, label_batches = self.generate_batches(
-            test_images, test_labels, batch_size)
-        return list(zip(img_batches, label_batches))
+            test_images, test_labels, len(test_images))
+        return (img_batches[0], label_batches[0])
 
     def load(self) -> None:
 

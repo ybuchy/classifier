@@ -9,7 +9,7 @@ def main():
     # (try out Grid search(hyperparameter optimization) later
     # output layer size: 10 (classification to number)
     batch_size = 500
-    learning_rate = .0001
+    learning_rate = .001
     il_size = 28 ** 2
     hl_size = 300
     ol_size = 10
@@ -21,8 +21,8 @@ def main():
     preproc = Preproc(*files)
     preproc.load()
     tr_set = preproc.get_training_set(batch_size)
-    val_set = preproc.get_validation_set(batch_size)
-    test_set = preproc.get_test_set(batch_size)
+    val_set = preproc.get_validation_set()
+    test_set = preproc.get_test_set()
 
     print("finished")
     print("training model...")
@@ -30,15 +30,23 @@ def main():
     net = NN_classifier(learning_rate, batch_size, 1, il_size, ol_size, hl_size)
 
     costs = []
-    for num, (ibatch, wbatch) in enumerate(test_set):
-        costs.append(net.mini_batch_gd(ibatch, wbatch))
-        if num == 5:
+    val_loss = []
+    epoche = 0
+    while True:
+        if epoche > 1 and val_loss[-1] - val_loss[-2] < 1e-4:
             break
+        for num, (ibatch, wbatch) in enumerate(tr_set):
+            costs.append(net.mini_batch_gd(ibatch, wbatch))
+        val_loss.append(net.check_acc(val_set))
+        print(val_loss[-1])
+        epoche += 1
 
     print("training done")
 
     plt.plot(costs)
     plt.show()
+
+    print(net.check_acc(test_set))
 
 
 if __name__ == "__main__":

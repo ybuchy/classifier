@@ -99,7 +99,7 @@ def cat_cross_entropy(classification, wanted):
 
 
 def cat_cross_entropy_batchtensor(classification, wanted):
-    return -np.diag(wanted @ np.log(classification).T)
+    return -np.diag(wanted.T @ np.log(classification))
 
 
 class NN_classifier:
@@ -241,9 +241,24 @@ class NN_classifier:
     def mini_batch_gd(self, inp, outp):
         self.forward(inp)
         self.backpropagate(outp)
-        loss = cat_cross_entropy(self.layers[-1].get_units(), outp)
+        output_layer = self.layers[-1].get_units()
+        loss = cat_cross_entropy_batchtensor(output_layer, outp)
+
         #self.update_weights_and_biases()
         return sum(loss) / len(loss)
+
+    def check_acc(self, ch_set):
+        im_tensor, op_tensor = ch_set
+        self.forward(im_tensor)
+        output_layer = self.layers[-1].get_units()
+        output_layer.shape
+        classifications = np.argmax(output_layer, axis=0)
+        labels = np.argmax(op_tensor, axis=0)
+        correct = 0
+        for classification, label in zip(classifications, labels):
+            if classification == label:
+                correct += 1
+        return correct / len(classifications)
 
     def save_weights(self):
         pass  # TODO

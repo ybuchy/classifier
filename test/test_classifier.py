@@ -9,8 +9,11 @@ class TestNN(unittest.TestCase):
         ind_a, ind_b = np.random.randint(0, 50), np.random.randint(0, 50)
         out_a, out_b = np.zeros(50), np.zeros(50)
         out_a[ind_a], out_b[ind_b] = 1, 1
-        cl_tensor = np.vstack((inp_a, inp_b))
-        lb_tensor = np.vstack((out_a, out_b))
+        cl_tensor = np.hstack((np.reshape(inp_a, (-1, 1)),
+                               np.reshape(inp_b, (-1, 1))))
+        print(cl_tensor.shape)
+        lb_tensor = np.hstack((np.reshape(out_a, (-1, 1)),
+                               np.reshape(out_b, (-1, 1))))
 
         a = cat_cross_entropy(inp_a, out_a)
         b = cat_cross_entropy(inp_b, out_b)
@@ -55,7 +58,7 @@ class TestNN(unittest.TestCase):
             weight_bias_matrix = np.hstack((bias, weights))
             net.weights[i] = weight_bias_matrix
         # get random inputs
-        inp1, inp2 = 1/50 * torch.tensor(range(50)), 1/50 * torch.tensor(range(50,0,-1))
+        inp1, inp2 = torch.rand(50), torch.rand(50)
         # classifier input batch matrix
         net_tensor = np.hstack((np.reshape(inp1.detach().numpy(), (-1, 1)),
                                 np.reshape(inp2.detach().numpy(), (-1, 1))))
@@ -69,6 +72,8 @@ class TestNN(unittest.TestCase):
         np.testing.assert_allclose(clas_fw[:,0], torch_fw1, rtol=1e-5, atol=1e-6)
         np.testing.assert_allclose(clas_fw[:,1], torch_fw2, rtol=1e-5, atol=1e-6)
 
+    def test_batch_backprop_relu_softmax(self):
+        pass
 
 
 if __name__ == "__main__":
