@@ -8,8 +8,8 @@ def main():
     # first try: 500 (so about 64%)
     # (try out Grid search(hyperparameter optimization) later
     # output layer size: 10 (classification to number)
-    batch_size = 500
-    learning_rate = .001
+    batch_size = 768
+    learning_rate = 1e-3
     il_size = 28 ** 2
     hl_size = 300
     ol_size = 10
@@ -31,15 +31,15 @@ def main():
 
     costs = []
     val_loss = []
-    epoche = 0
+    epoch = 0
     while True:
-        if epoche > 1 and val_loss[-1] - val_loss[-2] < 1e-4:
+        if epoch > 1 and val_loss[-1] - val_loss[-2] < 1e-4:
             break
         for num, (ibatch, wbatch) in enumerate(tr_set):
             costs.append(net.mini_batch_gd(ibatch, wbatch))
         val_loss.append(net.check_acc(val_set))
         print(val_loss[-1])
-        epoche += 1
+        epoch += 1
 
     print("training done")
 

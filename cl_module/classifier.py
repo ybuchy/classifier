@@ -1,49 +1,107 @@
 import numpy as np
 
 
-"""
-def vec(func, iterable):
-    return np.fromiter(map(lambda x: func(x), iterable), float)
-"""
-
-
-class Layer:
+class Lin_batch_layer:
     @staticmethod
-    def add_bias(unit_tensor):
-        return np.vstack((np.ones(unit_tensor.shape[1]), unit_tensor))
+    def add_bias(unit_matrix): # Is that correct?
+        return np.vstack((np.ones(unit_matrix.shape[1]), unit_matrix))
 
-    def __init__(self, shape, activation, bias=True):
-        self.bias = bias
-        bias_node = 1 if self.bias else 0
-        self.units = np.zeros(shape)
-        if bias:
-            self.units = self.add_bias(self.units)
-        self.activation = activation
+    def __init__(self, inp_size, outp_size, batch_size, bias=True):
+        self.inp_size = inp_size
+        self.outp_size = outp_size
+        self.unit_matrix = np.zeros((inp_size, batch_size))
+        self.outp_matrix = None # leave None?
+        self.bias = np.zeros(outp_size) if bias else None # good idea to mix types?
+        self.weight = 2 / inp_size * np.random.rand(batch_size, inp_size)
 
-    def set_units(self, units):
-        if self.bias:
-            units = self.add_bias(units)
-        self.units = units
+    def forward(self, inp_matrix):
+        self.unit_matrix = inp_matrix
+        if not self.bias is None:
+            inp_matrix = self.add_bias(inp_matrix)
+        weight_bias_matrix = np.hstack((np.reshape(self.bias, (-1, 1)), self.weight)) # have weigth_bias_matrix as attribute, otherwise have to do this a million times!
+        self.outp_matrix_pre = weight_bias_matrix @ inp_matrix
+        self.outp_matrix = self.activate(self.outp_matrix_pre)
+        return self.outp_matrix
 
-    def __str__(self):
-        return np.array2string(self.units)
+    # @@@@@@@@@ The following all return sum of gradients over given batch
+    def calc_inp_grad(self, output_grad):
+        if self.outp_matrix is None:
+            raise AttributeError("Calculate output first (obj.forward(...))")
+        lin_grad = self.calc_lin_grad(output_grad)
+        inp_grad = self.weight.T @ lin_grad
+        return inp_grad
 
-    def __len__(self):
-        return len(self.units)
+    def calc_weight_grad(self, output_grad):
+        if self.outp_matrix is None:
+            raise AttributeError("Calculate output first (obj.forward(...))")
+        lin_grad = self.calc_lin_grad(output_grad)
+        weight_grad = self.unit_matrix @ lin_grad.T
+        return weight_grad
 
-    def activate(self):
-        self.units_pre = self.units.copy()
-        if not self.bias:
-            self.units = self.activation(self.units)
-        else:
-            activated = self.activation(self.units[1:, :])
-            self.units = self.add_bias(activated)
+    def calc_bias_grad(self, output_grad):
+        lin_grad = self.calc_lin_grad(output_grad)
+        return np.sum(lin_grad, axis=1)
+
+    def update_weight(self, lr):
+        pass
+
+    """
+    def set_bias(self, bias_vector):
+        self.bias = bias_vector
+
+    def set_weigth
+
+    def set_units(self, unit_matrix):
+        # TODO check for correct shape
+        self.unit_matrix = unit_matrix
 
     def get_units(self):
-        return self.units[1:, :] if self.bias else self.units
+        return self.unit_matrix
 
-    def get_units_pre(self):
-        return self.units_pre[1:, :] if self.bias else self.units_pre
+    def get_outp_pre(self):
+        return self.output_matrix_pre
+    """
+
+    def __str__(self):
+        return np.array2string(self.unit_matrix)
+
+    def __len__(self):
+        return self.inp_size
+
+
+class ReLU_layer(Lin_batch_layer):
+    def __init__(self, inp_size, outp_size, batch_size, bias=True):
+        super().__init__(inp_size, outp_size, batch_size, bias)
+
+    def calc_lin_grad(self,  output_grad):
+        outp = self.outp_matrix_pre
+        if outp is None:
+            raise AttributeError("Calculate output first (obj.forward(...))")
+        lin_grad = np.maximum(np.zeros(outp.shape), np.sign(outp)) # TODO is there a better way to write this?
+        return lin_grad * output_grad # wrong?
+        
+    def activate(self, unit_matrix):
+        return np.maximum(np.zeros(unit_matrix.shape), unit_matrix)
+
+
+class Sigmoid_layer(Lin_batch_layer):
+    def __init__(self, inp_size, outp_size, batch_size, bias=True):
+        super().__init__(inp_size, outp_size, batch_size, bias)
+
+    def calc_lin_grad(self, layer, output_grad):
+        outp = self.output_matrix
+        if outp is None:
+            raise AttributeError("Calculate output first (obj.forward(...))")
+        lin_grad = outp * (1 - outp)
+        return lin_grad * output_grad
+
+    def activate(self, unit_matrix):
+        return 1 / (1 + np.exp(-x))
+
+
+class Softmax_loss:
+    # weight Id => can use lin_batch_layer?
+    pass
 
 
 """
@@ -116,16 +174,17 @@ class NN_classifier:
     change constructor parameters, confusing rn
     sigmoid derivative is sigmoid * (1 - sigmoid),
         so no need to calculate exp again - change
-    rename nodes to units
     !!!!!!!!!!!!!!!!!!!!!![important TODOs]!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    whole batch into one matrix ~> layer not vector but matrix DONE (debug now)
-    start using validation set
-    write unittests ~> use for batch debugging?
-    do forward(input), set input layer feels kinda useless
+    refactor (want layers way more modular)
+        ideas: have layer(inp_shape, outp_shape) then do layer.calc_inp_grad(out_grad) / layer.calc_weight_grad(out_grad)
+               how to model that layer is output_layer ~> dont have out_grad
+        (ideas) should be way better to write tests for ~> way more robust. Also easier to add cnn tensor layers? (hard to do efficient calculations? ~ check np tensor)
+        how to model bias? just put in layer?
+    write more tests
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    implement adam or similar for learning rate
     implement L2 regularization
     implement dropout regularization
-    implement adam or similar for learning rate
     """
     def __init__(self, learning_rate, batch_size, num_hid, il_size, ol_size, *hl_sizes):
         """
@@ -163,35 +222,6 @@ class NN_classifier:
     def show_output_layer(self):
         print(self.layers[-1])
 
-    """
-    def gradient_check(self, inp, outp):
-        cur_weights = self.weights.copy()
-        epsilon = 0.0001
-        # check 100 pseudo random gradients
-        for _ in range(100):
-            k = np.random.randint(0, len(self.weights))
-            i, j = np.random.randint(0, self.weights[k].shape[0]), \
-                np.random.randint(1, self.weights[k].shape[1])
-            self.set_input_layer(inp)
-            self.forward()
-            self.backpropagate(outp)
-            calculated = self.derivatives[k][i, j]
-            self.weights = cur_weights.copy()
-            self.weights[k][i, j] += epsilon
-            self.set_input_layer(inp)
-            self.forward()
-            plus = cat_cross_entropy(self.layers[-1].get_nodes(), outp)
-            self.weights = cur_weights.copy()
-            self.weights[k][i, j] -= epsilon
-            self.set_input_layer(inp)
-            self.forward()
-            minus = cat_cross_entropy(self.layers[-1].get_nodes(), outp)
-            numerical_approx = (plus - minus) / (2 * epsilon)
-            if (d := abs(calculated - numerical_approx)) > 0.01:
-                relative_dif = d / max(abs(calculated), abs(numerical_approx))
-                print(k, i, j, relative_dif, calculated, numerical_approx)
-    """
-
     def forward(self, inp_tensor):
         self.layers[0].set_units(inp_tensor)        
 
@@ -207,8 +237,8 @@ class NN_classifier:
         self.errors = []
 
         # calculate gradient of cost function wrt last layer before activation
+        # this is specifically for softmax with categorical cross entropy:
         error = self.layers[-1].get_units() - output
-        # this is specifically for softmax with categorical cross entropy
         self.errors.append(error)
 
         for layer in range(len(self.layers) - 2, 0, -1):
@@ -226,17 +256,14 @@ class NN_classifier:
         # calculate loss derivatives wrt weights
         derivatives = []
         for num, (layer, err) in enumerate(zip(self.layers[:-1], self.errors)):
-            weight_derivatives = err @ layer.get_units().T # not sure!, was np.outer(err, layer.get_nodes())
-            bias_derivatives = np.reshape(np.sum(err, axis=1), (-1, 1)) # not sure!
+            weight_derivatives = err @ layer.get_units().T
+            bias_derivatives = np.reshape(np.sum(err, axis=1), (-1, 1))
             derivative_matrix = np.hstack((bias_derivatives,
                                            weight_derivatives))
             derivatives.append(derivative_matrix)
 
         for weight, derivative in zip(self.weights, derivatives):
-            weight -= self.learning_rate * derivative
-
-        #def update_weights_and_biases(self):
-        #self.derivatives = [np.zeros(weight.shape) for weight in self.weights]
+            weight -= self.learning_rate / batch_size * derivative
 
     def mini_batch_gd(self, inp, outp):
         self.forward(inp)
