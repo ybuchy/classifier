@@ -53,6 +53,12 @@ class TestNN(unittest.TestCase):
     def test_sigmoid_batch_layer_gradient_check(self):
         pass
 
+    def test_softmax_loss_batch_layer_loss(self):
+        pass
+
+    def test_softmax_loss_batch_layer_grad(self):
+        pass
+
     def test_cat_cross_entropy_batchtensor(self):
         inp_a, inp_b = np.random.rand(50), np.random.rand(50)
         ind_a, ind_b = np.random.randint(0, 50), np.random.randint(0, 50)

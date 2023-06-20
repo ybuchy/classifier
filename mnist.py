@@ -8,7 +8,7 @@ def main():
     # first try: 500 (so about 64%)
     # (try out Grid search(hyperparameter optimization) later
     # output layer size: 10 (classification to number)
-    batch_size = 768
+    batch_size = 512
     learning_rate = 1e-3
     il_size = 28 ** 2
     hl_size = 300
@@ -27,7 +27,10 @@ def main():
     print("finished")
     print("training model...")
 
-    net = NN_classifier(learning_rate, batch_size, 1, il_size, ol_size, hl_size)
+    net = NN_classifier(learning_rate, batch_size)
+    net.add_relu(il_size, hl_size)
+    net.add_linear(hl_size, ol_size)
+    net.add_softmax_loss(ol_size)
 
     costs = []
     val_loss = []

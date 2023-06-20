@@ -12,7 +12,9 @@ class Lin_batch_layer:
         self.unit_matrix = np.zeros((inp_size, batch_size))
         self.outp_matrix = None # leave None?
         self.bias = np.zeros(outp_size) if bias else None # good idea to mix types?
-        self.weight = 2 / inp_size * np.random.rand(batch_size, inp_size)
+        self.weight = 2 / inp_size * np.random.rand(outp_size, inp_size)
+        self.bias_grad = np.zeros(outp_size)
+        self.weight_grad = np.zeros(self.weight.shape)
 
     def forward(self, inp_matrix):
         self.unit_matrix = inp_matrix
@@ -31,19 +33,27 @@ class Lin_batch_layer:
         inp_grad = self.weight.T @ lin_grad
         return inp_grad
 
+    def calc_gradients(self, output_grad):
+        inp_grad = self.calc_inp_grad(output_grad)
+        self.calc_bias_grad(output_grad)
+        self.calc_weight_grad(output_grad)
+        return inp_grad
+        
+
     def calc_weight_grad(self, output_grad):
         if self.outp_matrix is None:
             raise AttributeError("Calculate output first (obj.forward(...))")
         lin_grad = self.calc_lin_grad(output_grad)
-        weight_grad = self.unit_matrix @ lin_grad.T
-        return weight_grad
+        weight_grad = lin_grad @ self.unit_matrix.T
+        self.weight_grad += weight_grad
 
     def calc_bias_grad(self, output_grad):
         lin_grad = self.calc_lin_grad(output_grad)
-        return np.sum(lin_grad, axis=1)
+        self.bias_grad += np.sum(lin_grad, axis=1)
 
-    def update_weight(self, lr):
-        pass
+    def update_parameters(self, lr):
+        self.weight -= lr * self.weight_grad
+        self.bias -= lr * self.bias_grad
 
     """
     def set_bias(self, bias_vector):
@@ -78,17 +88,29 @@ class ReLU_layer(Lin_batch_layer):
         if outp is None:
             raise AttributeError("Calculate output first (obj.forward(...))")
         lin_grad = np.maximum(np.zeros(outp.shape), np.sign(outp)) # TODO is there a better way to write this?
-        return lin_grad * output_grad # wrong?
+        return lin_grad * output_grad
         
     def activate(self, unit_matrix):
         return np.maximum(np.zeros(unit_matrix.shape), unit_matrix)
+
+
+# TODO @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+class Linear_layer(Lin_batch_layer):
+    def __init__(self, inp_size, outp_size, batch_size, bias=True):
+        super().__init__(inp_size, outp_size, batch_size, bias)
+
+    def calc_lin_grad(self, output_grad):
+        return output_grad
+
+    def activate(self, unit_matrix):
+        return unit_matrix
 
 
 class Sigmoid_layer(Lin_batch_layer):
     def __init__(self, inp_size, outp_size, batch_size, bias=True):
         super().__init__(inp_size, outp_size, batch_size, bias)
 
-    def calc_lin_grad(self, layer, output_grad):
+    def calc_lin_grad(self, output_grad):
         outp = self.output_matrix
         if outp is None:
             raise AttributeError("Calculate output first (obj.forward(...))")
@@ -100,8 +122,23 @@ class Sigmoid_layer(Lin_batch_layer):
 
 
 class Softmax_loss:
-    # weight Id => can use lin_batch_layer?
-    pass
+    def __init__(self, size, batch_size):
+        self.unit_matrix = np.zeros((size, batch_size))
+
+    def activate(self, unit_matrix):
+        # numerical stabilization
+        m = unit_matrix - np.amax(unit_matrix, axis=0)
+        e_m = np.exp(m)
+        self.act_matrix = e_m / np.sum(e_m, axis=0)
+
+    def calc_lin_grad(self, one_hot_label_batch):
+        return self.act_matrix - one_hot_label_batch
+
+    def loss(self, one_hot_label_batch):
+        self.activate(self.unit_matrix)
+        classification = self.act_matrix
+        return -np.diag(one_hot_label_batch.T @ np.log(classification))
+        
 
 
 """
@@ -186,99 +223,69 @@ class NN_classifier:
     implement L2 regularization
     implement dropout regularization
     """
-    def __init__(self, learning_rate, batch_size, num_hid, il_size, ol_size, *hl_sizes):
-        """
-        num_hid: amount of hidden layers
-        il_size: amount of input nodes
-        ol_size: amount of output nodes
-        hl_sizes: nodes per hidden layer
-        """
-
-        if len(hl_sizes) != num_hid:
-            raise TypeError("please specify hidden layer sizes")
-
-        input_layer = Layer((il_size, batch_size), relu_batchtensor)
-        hidden_layers = list(Layer((size, batch_size), relu_batchtensor)
-                             for size in hl_sizes)
-        output_layer = Layer((ol_size, batch_size), softmax_batchtensor, bias=False)
-        self.layers = [input_layer] + hidden_layers + [output_layer]
-
-        self.weights = []
-        for size1, size2 in zip([il_size, *hl_sizes], [*hl_sizes, ol_size]):
-            bias_weights = np.reshape(np.zeros(size2), (-1, 1))
-            weight_matrix = np.random.rand(size2, size1)
-            # squash weights into wanted range
-            weight_matrix = np.sqrt(2 / size1) * (weight_matrix - 0.5)
-            # add bias weights for bias calculation
-            weight_matrix = np.hstack((bias_weights, weight_matrix))
-            self.weights.append(weight_matrix)
-
+    def __init__(self, learning_rate, batch_size):
         self.learning_rate = learning_rate
-        self.derivatives = [np.zeros(weight.shape) for weight in self.weights]
+        self.batch_size = batch_size
+        self.layers = []
 
-    def set_input_layer(self, units):
-        self.layers[0].set_units(units)
+    def add_layer(self, act, inp_size, outp_size=None):
+        if act == "relu":
+            self.layers.append(
+                ReLU_layer(inp_size, outp_size, self.batch_size))
+        elif act == "sigmoid":
+            self.layers.append(
+                Sigmoid_layer(inp_size, outp_size, self.batch_size))
+        elif act == "softmax_loss":
+            self.layers.append(
+                Softmax_loss(inp_size, self.batch_size))
+
+        elif act == "linear":
+            self.layers.append(
+                Linear_layer(inp_size, outp_size, self.batch_size))
+
+
+    def add_relu(self, inp_size, outp_size):
+        self.add_layer("relu", inp_size, outp_size)
+
+    def add_sigmoid(self, inp_size, outp_size):
+        self.add_layer("sigmoid", inp_size, outp_size)
+
+    def add_softmax_loss(self, size):
+        self.add_layer("softmax_loss", size)
+
+    def add_linear(self, inp_size, outp_size):
+        self.add_layer("linear", inp_size, outp_size)
 
     def show_output_layer(self):
         print(self.layers[-1])
 
+    # TODO just hacking it to work rn
     def forward(self, inp_tensor):
-        self.layers[0].set_units(inp_tensor)        
+        for layer in self.layers[:-1]:
+            inp_tensor = layer.forward(inp_tensor)
+        self.layers[-1].activate(inp_tensor)
 
-        for layer in range(len(self.layers) - 1):
-            self.layers[layer+1].set_units(
-                    self.weights[layer] @ self.layers[layer].units)
-            self.layers[layer+1].activate()
-
+    # cur hacky - only for softmax loss
     def backpropagate(self, output):
-        """
-        output: what the output layer should have been
-        """
-        self.errors = []
-
-        # calculate gradient of cost function wrt last layer before activation
-        # this is specifically for softmax with categorical cross entropy:
-        error = self.layers[-1].get_units() - output
-        self.errors.append(error)
-
-        for layer in range(len(self.layers) - 2, 0, -1):
-
-            # calculate gradient wrt activation of earlier layer
-            local_grad_act = self.weights[layer][:, 1:]
-            grad_act = local_grad_act.T @ self.errors[-1]
-            # calculate gradient wrt pre activation layer
-            grad_pre = relu_batchtensor(self.layers[layer].get_units_pre(), derivative=True) * grad_act
-
-            self.errors.append(grad_pre)
-
-        self.errors.reverse()
-
-        # calculate loss derivatives wrt weights
-        derivatives = []
-        for num, (layer, err) in enumerate(zip(self.layers[:-1], self.errors)):
-            weight_derivatives = err @ layer.get_units().T
-            bias_derivatives = np.reshape(np.sum(err, axis=1), (-1, 1))
-            derivative_matrix = np.hstack((bias_derivatives,
-                                           weight_derivatives))
-            derivatives.append(derivative_matrix)
-
-        for weight, derivative in zip(self.weights, derivatives):
-            weight -= self.learning_rate / batch_size * derivative
+        # TODO is all the slicing inefficient?
+        grad = self.layers[-1].calc_lin_grad(output)
+        for layer in reversed(self.layers[:-1]):
+            # TODO - inp_grad useless for input layer
+            grad = layer.calc_gradients(grad)
+        for layer in self.layers[:-1]:
+            layer.update_parameters(self.learning_rate)
 
     def mini_batch_gd(self, inp, outp):
         self.forward(inp)
         self.backpropagate(outp)
-        output_layer = self.layers[-1].get_units()
-        loss = cat_cross_entropy_batchtensor(output_layer, outp)
-
-        #self.update_weights_and_biases()
+        # pretty hacky rn
+        loss = self.layers[-1].loss(outp)
         return sum(loss) / len(loss)
 
     def check_acc(self, ch_set):
         im_tensor, op_tensor = ch_set
         self.forward(im_tensor)
-        output_layer = self.layers[-1].get_units()
-        output_layer.shape
+        output_layer = self.layers[-1].unit_matrix
         classifications = np.argmax(output_layer, axis=0)
         labels = np.argmax(op_tensor, axis=0)
         correct = 0
