@@ -34,8 +34,9 @@ class TestNN(unittest.TestCase):
         relu.weight = np.array([[3, 4, 5], [-6, -7, -8]])
 
         outp = relu.forward(inp)
+        relu.calc_weight_grad(np.ones((2, 2)))
 
-        np.testing.assert_equal(relu.calc_weight_grad(np.ones((2, 2))), np.array([[4, 4, 4], [0, 0, 0]]).T)
+        np.testing.assert_equal(relu.weight_grad, np.array([[4, 4, 4], [0, 0, 0]]))
 
     def test_relu_batch_layer_bias_grad(self):
         relu = ReLU_layer(3, 2, 2)
@@ -44,8 +45,9 @@ class TestNN(unittest.TestCase):
         relu.weight = np.array([[3, 4, 5], [-6, -7, -8]])
 
         relu.forward(inp)
+        relu.calc_bias_grad(np.ones((2, 2)))
 
-        np.testing.assert_equal(relu.calc_bias_grad(np.ones((2, 2))), np.array([2, 0]).T)
+        np.testing.assert_equal(relu.bias_grad, np.array([2, 0]).T)
 
     def test_sigmoid_batch_layer_forward(self):
         pass

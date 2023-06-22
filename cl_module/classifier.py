@@ -38,7 +38,6 @@ class Lin_batch_layer:
         self.calc_bias_grad(output_grad)
         self.calc_weight_grad(output_grad)
         return inp_grad
-        
 
     def calc_weight_grad(self, output_grad):
         if self.outp_matrix is None:
@@ -89,12 +88,11 @@ class ReLU_layer(Lin_batch_layer):
             raise AttributeError("Calculate output first (obj.forward(...))")
         lin_grad = np.maximum(np.zeros(outp.shape), np.sign(outp)) # TODO is there a better way to write this?
         return lin_grad * output_grad
-        
+
     def activate(self, unit_matrix):
         return np.maximum(np.zeros(unit_matrix.shape), unit_matrix)
 
 
-# TODO @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 class Linear_layer(Lin_batch_layer):
     def __init__(self, inp_size, outp_size, batch_size, bias=True):
         super().__init__(inp_size, outp_size, batch_size, bias)
